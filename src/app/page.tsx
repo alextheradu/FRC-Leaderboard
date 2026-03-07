@@ -1,65 +1,144 @@
-import Image from "next/image";
+'use client'
+import { useEffect, useState } from 'react'
+import { useLeaderboard } from '@/hooks/useLeaderboard'
+import { useFavorites } from '@/hooks/useFavorites'
+import { Header } from '@/components/Header'
+import { LeaderboardTable } from '@/components/LeaderboardTable'
+import { EventFilter } from '@/components/EventFilter'
+import { TeamDrawer } from '@/components/TeamDrawer'
+import { ComparePanel } from '@/components/ComparePanel'
+import { ChevronDown, ChevronUp, RefreshCw } from 'lucide-react'
 
-export default function Home() {
+type LeaderboardRow = {
+  rank: number; score: number; team_numbers: number[]; match_key: string;
+  event_key: string; event_name: string; alliance: 'red' | 'blue';
+  achieved_at: number; video_url?: string
+}
+
+const PAGE_SIZE = 100
+
+export default function HomePage() {
+  const [selectedEvent, setSelectedEvent] = useState<string>()
+  const [selectedTeam, setSelectedTeam] = useState<number | null>(null)
+  const [compareTeams, setCompareTeams] = useState<[number, number] | null>(null)
+  const [showFavorites, setShowFavorites] = useState(false)
+  const [isSyncing, setIsSyncing] = useState(false)
+  const [offset, setOffset] = useState(0)
+
+  const { data: leaderboardData, isLoading } = useLeaderboard(selectedEvent, PAGE_SIZE, offset)
+  const { favorites } = useFavorites()
+  const typedRows = (leaderboardData?.rows ?? []) as LeaderboardRow[]
+  const totalPlaces = (leaderboardData?.total ?? 0) as number
+  const displayRows = showFavorites ? typedRows.filter(r => r.team_numbers.some(n => favorites.includes(n))) : typedRows
+
+  const handleSync = async () => {
+    setIsSyncing(true)
+    try { await fetch('/api/sync', { method: 'POST' }) }
+    finally { setIsSyncing(false) }
+  }
+
+  const handleTeamSelect = async (teamNumber: number) => {
+    setSelectedTeam(teamNumber)
+    setShowFavorites(false)
+    try {
+      const query = selectedEvent ? `?eventKey=${encodeURIComponent(selectedEvent)}` : ''
+      const res = await fetch(`/api/teams/${teamNumber}/placement${query}`)
+      if (!res.ok) return
+      const data = await res.json() as { rank: number }
+      const targetOffset = Math.floor((Math.max(data.rank, 1) - 1) / PAGE_SIZE) * PAGE_SIZE
+      setOffset(targetOffset)
+    } catch {
+      // Keep current window if placement lookup fails.
+    }
+  }
+
+  const handleCompareRequest = (teamNumber: number) => {
+    if (selectedTeam && selectedTeam !== teamNumber) {
+      setCompareTeams([selectedTeam, teamNumber])
+    }
+  }
+
+  useEffect(() => {
+    setOffset(0)
+  }, [selectedEvent])
+
+  const displayStart = typedRows.length ? offset + 1 : 0
+  const displayEnd = offset + typedRows.length
+  const canGoUp = offset > 0
+  const canGoDown = offset + PAGE_SIZE < totalPlaces
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="min-h-screen" style={{ background: 'var(--bg)' }}>
+      <Header
+        onTeamSelect={handleTeamSelect}
+        onShowFavorites={() => setShowFavorites(v => !v)}
+        showingFavorites={showFavorites}
+        onSync={handleSync}
+        isSyncing={isSyncing}
+      />
+
+      <main className="max-w-6xl mx-auto px-4 py-5">
+        {/* Controls */}
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <div className="flex items-center gap-3 flex-wrap">
+            <h1 className="text-sm font-bold" style={{ fontFamily: "'Barlow Condensed', sans-serif", letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+              {showFavorites ? 'Favorites' : selectedEvent ? 'Event Leaderboard' : 'Global Leaderboard'}
+            </h1>
+            <EventFilter selectedEvent={selectedEvent} onSelect={setSelectedEvent} />
+          </div>
+          <div className="flex items-center gap-2 text-xs flex-wrap justify-end" style={{ color: 'var(--text-muted)' }}>
+            {isLoading && <RefreshCw size={12} className="animate-spin" />}
+            <span>{showFavorites ? `${displayRows.length} favorites` : `${displayStart}-${displayEnd} of ${totalPlaces}`}</span>
+            {!showFavorites && (
+              <>
+                <button
+                  onClick={() => setOffset(v => Math.max(0, v - PAGE_SIZE))}
+                  disabled={!canGoUp}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded disabled:opacity-35"
+                  style={{ border: '1px solid var(--border)', color: 'var(--text-secondary)' }}
+                >
+                  <ChevronUp size={12} />
+                  Up
+                </button>
+                <button
+                  onClick={() => setOffset(v => Math.min(v + PAGE_SIZE, Math.max(totalPlaces - PAGE_SIZE, 0)))}
+                  disabled={!canGoDown}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded disabled:opacity-35"
+                  style={{ border: '1px solid var(--border)', color: 'var(--text-secondary)' }}
+                >
+                  <ChevronDown size={12} />
+                  Down
+                </button>
+              </>
+            )}
+          </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+
+        {/* Table */}
+        <div className="rounded-lg overflow-hidden" style={{ border: '1px solid var(--border)' }}>
+          <LeaderboardTable
+            rows={displayRows}
+            highlightTeams={selectedTeam ? [selectedTeam] : favorites}
+            onTeamClick={setSelectedTeam}
+          />
         </div>
+
+        <p className="text-xs text-center mt-4" style={{ color: 'var(--text-muted)' }}>
+          Data from The Blue Alliance · Auto-syncs weekends
+        </p>
       </main>
+
+      {selectedTeam !== null && (
+        <TeamDrawer
+          teamNumber={selectedTeam}
+          onClose={() => setSelectedTeam(null)}
+          onCompare={handleCompareRequest}
+        />
+      )}
+
+      {compareTeams && (
+        <ComparePanel teamA={compareTeams[0]} teamB={compareTeams[1]} onClose={() => setCompareTeams(null)} />
+      )}
     </div>
-  );
+  )
 }
