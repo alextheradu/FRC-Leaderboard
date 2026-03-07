@@ -9,6 +9,11 @@ if (typeof window === 'undefined' && process.env.NODE_ENV !== 'test') {
 export const metadata: Metadata = {
   title: "FRC Leaderboard — Top Alliance Scores",
   description: "Live FRC match score leaderboard. Track the highest alliance scores across all 2026 FIRST Robotics Competition events.",
+  icons: {
+    icon: "/first-logo.png",
+    shortcut: "/first-logo.png",
+    apple: "/first-logo.png",
+  },
 };
 
 export default function RootLayout({
