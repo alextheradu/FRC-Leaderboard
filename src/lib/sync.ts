@@ -74,146 +74,202 @@ interface TeamDetailRow {
 
 const noopLogger: SyncLogger = { log: () => { }, progress: () => { } }
 
-function chunk<T>(items: T[], size: number): T[][] {
-  const out: T[][] = []
-  for (let i = 0; i < items.length; i += size) {
-    out.push(items.slice(i, i + size))
-  }
-  return out
-}
-
-async function upsertEvents(rows: EventRow[]): Promise<void> {
+function upsertEvents(rows: EventRow[]): void {
   if (!rows.length) return
   const db = getDb()
-  for (const part of chunk(rows, 300)) {
-    await db`
-      INSERT INTO events ${db(part, [
-        'event_key',
-        'name',
-        'short_name',
-        'city',
-        'state_prov',
-        'country',
-        'year',
-        'start_date',
-        'end_date',
-        'event_type',
-        'last_updated',
-      ])}
-      ON CONFLICT (event_key) DO UPDATE SET
-        name = EXCLUDED.name,
-        short_name = EXCLUDED.short_name,
-        city = EXCLUDED.city,
-        state_prov = EXCLUDED.state_prov,
-        country = EXCLUDED.country,
-        year = EXCLUDED.year,
-        start_date = EXCLUDED.start_date,
-        end_date = EXCLUDED.end_date,
-        event_type = EXCLUDED.event_type,
-        last_updated = EXCLUDED.last_updated
-    `
-  }
+  const stmt = db.prepare(`
+    INSERT INTO events (
+      event_key,
+      name,
+      short_name,
+      city,
+      state_prov,
+      country,
+      year,
+      start_date,
+      end_date,
+      event_type,
+      last_updated
+    ) VALUES (
+      @event_key,
+      @name,
+      @short_name,
+      @city,
+      @state_prov,
+      @country,
+      @year,
+      @start_date,
+      @end_date,
+      @event_type,
+      @last_updated
+    )
+    ON CONFLICT(event_key) DO UPDATE SET
+      name = excluded.name,
+      short_name = excluded.short_name,
+      city = excluded.city,
+      state_prov = excluded.state_prov,
+      country = excluded.country,
+      year = excluded.year,
+      start_date = excluded.start_date,
+      end_date = excluded.end_date,
+      event_type = excluded.event_type,
+      last_updated = excluded.last_updated
+  `)
+
+  const tx = db.transaction((items: EventRow[]) => {
+    for (const row of items) stmt.run(row)
+  })
+
+  tx(rows)
 }
 
-async function upsertMatches(rows: MatchRow[]): Promise<void> {
+function upsertMatches(rows: MatchRow[]): void {
   if (!rows.length) return
   const db = getDb()
-  for (const part of chunk(rows, 400)) {
-    await db`
-      INSERT INTO matches ${db(part, [
-        'match_key',
-        'event_key',
-        'comp_level',
-        'match_number',
-        'set_number',
-        'red_score',
-        'blue_score',
-        'red_teams',
-        'blue_teams',
-        'winning_alliance',
-        'actual_time',
-        'post_result_time',
-        'video_url',
-      ])}
-      ON CONFLICT (match_key) DO UPDATE SET
-        event_key = EXCLUDED.event_key,
-        comp_level = EXCLUDED.comp_level,
-        match_number = EXCLUDED.match_number,
-        set_number = EXCLUDED.set_number,
-        red_score = EXCLUDED.red_score,
-        blue_score = EXCLUDED.blue_score,
-        red_teams = EXCLUDED.red_teams,
-        blue_teams = EXCLUDED.blue_teams,
-        winning_alliance = EXCLUDED.winning_alliance,
-        actual_time = EXCLUDED.actual_time,
-        post_result_time = EXCLUDED.post_result_time,
-        video_url = EXCLUDED.video_url
-    `
-  }
+  const stmt = db.prepare(`
+    INSERT INTO matches (
+      match_key,
+      event_key,
+      comp_level,
+      match_number,
+      set_number,
+      red_score,
+      blue_score,
+      red_teams,
+      blue_teams,
+      winning_alliance,
+      actual_time,
+      post_result_time,
+      video_url
+    ) VALUES (
+      @match_key,
+      @event_key,
+      @comp_level,
+      @match_number,
+      @set_number,
+      @red_score,
+      @blue_score,
+      @red_teams,
+      @blue_teams,
+      @winning_alliance,
+      @actual_time,
+      @post_result_time,
+      @video_url
+    )
+    ON CONFLICT(match_key) DO UPDATE SET
+      event_key = excluded.event_key,
+      comp_level = excluded.comp_level,
+      match_number = excluded.match_number,
+      set_number = excluded.set_number,
+      red_score = excluded.red_score,
+      blue_score = excluded.blue_score,
+      red_teams = excluded.red_teams,
+      blue_teams = excluded.blue_teams,
+      winning_alliance = excluded.winning_alliance,
+      actual_time = excluded.actual_time,
+      post_result_time = excluded.post_result_time,
+      video_url = excluded.video_url
+  `)
+
+  const tx = db.transaction((items: MatchRow[]) => {
+    for (const row of items) stmt.run(row)
+  })
+
+  tx(rows)
 }
 
-async function upsertLeaderboard(rows: LeaderboardRow[]): Promise<void> {
+function upsertLeaderboard(rows: LeaderboardRow[]): void {
   if (!rows.length) return
   const db = getDb()
-  for (const part of chunk(rows, 400)) {
-    await db`
-      INSERT INTO leaderboard ${db(part, [
-        'match_key',
-        'event_key',
-        'alliance',
-        'score',
-        'team_numbers',
-        'achieved_at',
-      ])}
-      ON CONFLICT (match_key) DO UPDATE SET
-        event_key = EXCLUDED.event_key,
-        alliance = EXCLUDED.alliance,
-        score = EXCLUDED.score,
-        team_numbers = EXCLUDED.team_numbers,
-        achieved_at = EXCLUDED.achieved_at
-    `
-  }
+  const stmt = db.prepare(`
+    INSERT INTO leaderboard (
+      match_key,
+      event_key,
+      alliance,
+      score,
+      team_numbers,
+      achieved_at
+    ) VALUES (
+      @match_key,
+      @event_key,
+      @alliance,
+      @score,
+      @team_numbers,
+      @achieved_at
+    )
+    ON CONFLICT(match_key) DO UPDATE SET
+      event_key = excluded.event_key,
+      alliance = excluded.alliance,
+      score = excluded.score,
+      team_numbers = excluded.team_numbers,
+      achieved_at = excluded.achieved_at
+  `)
+
+  const tx = db.transaction((items: LeaderboardRow[]) => {
+    for (const row of items) stmt.run(row)
+  })
+
+  tx(rows)
 }
 
-async function upsertTeamStubs(rows: TeamStubRow[]): Promise<void> {
+function upsertTeamStubs(rows: TeamStubRow[]): void {
   if (!rows.length) return
   const db = getDb()
-  for (const part of chunk(rows, 1000)) {
-    await db`
-      INSERT INTO teams ${db(part, ['team_number', 'last_updated'])}
-      ON CONFLICT (team_number) DO UPDATE SET
-        last_updated = EXCLUDED.last_updated
-    `
-  }
+  const stmt = db.prepare(`
+    INSERT INTO teams (team_number, last_updated)
+    VALUES (@team_number, @last_updated)
+    ON CONFLICT(team_number) DO UPDATE SET
+      last_updated = excluded.last_updated
+  `)
+
+  const tx = db.transaction((items: TeamStubRow[]) => {
+    for (const row of items) stmt.run(row)
+  })
+
+  tx(rows)
 }
 
-async function upsertTeamDetails(rows: TeamDetailRow[]): Promise<void> {
+function upsertTeamDetails(rows: TeamDetailRow[]): void {
   if (!rows.length) return
   const db = getDb()
-  for (const part of chunk(rows, 200)) {
-    await db`
-      INSERT INTO teams ${db(part, [
-        'team_number',
-        'nickname',
-        'city',
-        'state_prov',
-        'country',
-        'website',
-        'rookie_year',
-        'avatar_base64',
-        'last_updated',
-      ])}
-      ON CONFLICT (team_number) DO UPDATE SET
-        nickname = EXCLUDED.nickname,
-        city = EXCLUDED.city,
-        state_prov = EXCLUDED.state_prov,
-        country = EXCLUDED.country,
-        website = EXCLUDED.website,
-        rookie_year = EXCLUDED.rookie_year,
-        avatar_base64 = EXCLUDED.avatar_base64,
-        last_updated = EXCLUDED.last_updated
-    `
-  }
+  const stmt = db.prepare(`
+    INSERT INTO teams (
+      team_number,
+      nickname,
+      city,
+      state_prov,
+      country,
+      website,
+      rookie_year,
+      avatar_base64,
+      last_updated
+    ) VALUES (
+      @team_number,
+      @nickname,
+      @city,
+      @state_prov,
+      @country,
+      @website,
+      @rookie_year,
+      @avatar_base64,
+      @last_updated
+    )
+    ON CONFLICT(team_number) DO UPDATE SET
+      nickname = excluded.nickname,
+      city = excluded.city,
+      state_prov = excluded.state_prov,
+      country = excluded.country,
+      website = excluded.website,
+      rookie_year = excluded.rookie_year,
+      avatar_base64 = excluded.avatar_base64,
+      last_updated = excluded.last_updated
+  `)
+
+  const tx = db.transaction((items: TeamDetailRow[]) => {
+    for (const row of items) stmt.run(row)
+  })
+
+  tx(rows)
 }
 
 export function computeLeaderboardEntries(matches: TBAMatch[]): LeaderboardEntry[] {
@@ -247,28 +303,28 @@ export async function syncYear(
   const db = getDb()
   const tba = getTBAClient()
 
-  const logInsert = await db<{ id: number }[]>`
+  const logInsert = db.prepare(`
     INSERT INTO sync_log (started_at, status)
-    VALUES (${Date.now()}, 'running')
-    RETURNING id
-  `
-  const logId = Number(logInsert[0]?.id)
+    VALUES (?, 'running')
+  `).run(Date.now())
+  const logId = Number(logInsert.lastInsertRowid)
 
   try {
     logger.log(`Fetching events for ${year}...`)
     const events = await tba.get<TBAEvent[]>(`/events/${year}/simple`)
+
     if (!events) {
       logger.log('No events found.')
-      await db`
+      db.prepare(`
         UPDATE sync_log
-        SET finished_at = ${Date.now()}, status = 'success', events_synced = 0, matches_synced = 0
-        WHERE id = ${logId}
-      `
+        SET finished_at = ?, status = 'success', events_synced = 0, matches_synced = 0
+        WHERE id = ?
+      `).run(Date.now(), logId)
       return
     }
 
     const now = Date.now()
-    await upsertEvents(events.map((e) => ({
+    upsertEvents(events.map((e) => ({
       event_key: e.key,
       name: e.name,
       short_name: e.short_name ?? null,
@@ -300,9 +356,11 @@ export async function syncYear(
 
       for (const matches of results) {
         if (!matches) continue
+
         for (const m of matches) {
           const redTeams = m.alliances.red.team_keys.map(parseTeamNumber)
           const blueTeams = m.alliances.blue.team_keys.map(parseTeamNumber)
+          const youtubeKey = m.videos?.find((v) => v.type === 'youtube')?.key
 
           matchRows.push({
             match_key: m.key,
@@ -317,10 +375,9 @@ export async function syncYear(
             winning_alliance: m.winning_alliance || null,
             actual_time: m.actual_time,
             post_result_time: m.post_result_time,
-            video_url: m.videos?.find((v) => v.type === 'youtube')?.key
-              ? `https://www.youtube.com/watch?v=${m.videos.find((v) => v.type === 'youtube')!.key}`
-              : null,
+            video_url: youtubeKey ? `https://www.youtube.com/watch?v=${youtubeKey}` : null,
           })
+
           for (const team of redTeams) teamSet.add(team)
           for (const team of blueTeams) teamSet.add(team)
           matchesSynced++
@@ -334,37 +391,36 @@ export async function syncYear(
         }
       }
 
-      await upsertMatches(matchRows)
-      await Promise.all([
-        upsertLeaderboard(leaderboardRows),
-        upsertTeamStubs(Array.from(teamSet).map((team) => ({
-          team_number: team,
-          last_updated: Date.now(),
-        }))),
-      ])
+      upsertMatches(matchRows)
+      upsertLeaderboard(leaderboardRows)
+      upsertTeamStubs(Array.from(teamSet).map((team) => ({
+        team_number: team,
+        last_updated: Date.now(),
+      })))
     }
 
     logger.progress(events.length, events.length, 'Done')
     logger.log(`Synced ${matchesSynced} matches across ${events.length} events`)
 
-    await db`
+    db.prepare(`
       UPDATE sync_log
       SET
-        finished_at = ${Date.now()},
-        events_synced = ${events.length},
-        matches_synced = ${matchesSynced},
+        finished_at = ?,
+        events_synced = ?,
+        matches_synced = ?,
         status = 'success'
-      WHERE id = ${logId}
-    `
+      WHERE id = ?
+    `).run(Date.now(), events.length, matchesSynced, logId)
   } catch (err) {
-    await db`
+    const message = err instanceof Error ? err.message : String(err)
+    db.prepare(`
       UPDATE sync_log
       SET
-        finished_at = ${Date.now()},
+        finished_at = ?,
         status = 'error',
-        error_message = ${String(err)}
-      WHERE id = ${logId}
-    `
+        error_message = ?
+      WHERE id = ?
+    `).run(Date.now(), message, logId)
     throw err
   }
 }
@@ -376,14 +432,18 @@ export async function syncTeams(teamNumbers: number[]): Promise<void> {
   const BATCH = 10
   for (let i = 0; i < teamNumbers.length; i += BATCH) {
     const details: TeamDetailRow[] = []
+
     await Promise.all(teamNumbers.slice(i, i + BATCH).map(async (num) => {
       try {
         const [info, media] = await Promise.all([
           tba.get<Record<string, unknown>>(`/team/frc${num}/simple`),
           tba.get<Array<Record<string, unknown>>>(`/team/frc${num}/media/${new Date().getFullYear()}`),
         ])
+
         if (!info) return
+
         const avatar = media?.find((m) => (m as Record<string, unknown>).type === 'avatar')
+
         details.push({
           team_number: num,
           nickname: (info.nickname as string) ?? '',
@@ -400,6 +460,7 @@ export async function syncTeams(teamNumbers: number[]): Promise<void> {
         console.warn(`[sync] Failed to sync team ${num}:`, e)
       }
     }))
-    await upsertTeamDetails(details)
+
+    upsertTeamDetails(details)
   }
 }

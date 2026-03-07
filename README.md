@@ -7,8 +7,8 @@ Interactive FRC match score leaderboard powered by The Blue Alliance API.
 1. `npm install`
 2. Copy `.env.example` to `.env` and fill in:
    - `TBA_API_KEY`
-   - `SUPABASE_URL` (Postgres connection string)
-3. `npx tsx scripts/initial-sync.ts` — seeds Supabase with events/matches
+   - `SQLITE_DB_PATH` (optional, defaults to `./data/leaderboard.db`)
+3. `npx tsx scripts/initial-sync.ts` — seeds local SQLite with events/matches
 4. `npm run dev` — open http://localhost:3000
 
 ## Features
@@ -30,4 +30,4 @@ curl -X POST http://localhost:3000/api/sync
 
 ## Stack
 
-Next.js 16 · TypeScript · Supabase Postgres · TBA API v3 · Tailwind CSS · TanStack Query · Zustand · node-cron
+Next.js 16 · TypeScript · SQLite (better-sqlite3) · TBA API v3 · Tailwind CSS · TanStack Query · Zustand · node-cron

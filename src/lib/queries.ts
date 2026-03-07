@@ -55,26 +55,28 @@ type RawLeaderboardRow = {
 async function fetchLeaderboardRows(eventKey?: string): Promise<LeaderboardRow[]> {
   await ensureDbSchema()
   const db = getDb()
-  const rows = (eventKey
-    ? await db<RawLeaderboardRow[]>`
-      SELECT
-        l.score, l.team_numbers, l.match_key, l.event_key,
-        e.name as event_name, l.alliance, l.achieved_at, m.video_url
-      FROM leaderboard l
-      LEFT JOIN events e ON l.event_key = e.event_key
-      LEFT JOIN matches m ON l.match_key = m.match_key
-      WHERE l.event_key = ${eventKey}
-      ORDER BY l.score DESC, l.achieved_at ASC
-    `
-    : await db<RawLeaderboardRow[]>`
-      SELECT
-        l.score, l.team_numbers, l.match_key, l.event_key,
-        e.name as event_name, l.alliance, l.achieved_at, m.video_url
-      FROM leaderboard l
-      LEFT JOIN events e ON l.event_key = e.event_key
-      LEFT JOIN matches m ON l.match_key = m.match_key
-      ORDER BY l.score DESC, l.achieved_at ASC
-    `
+
+  const baseQuery = `
+    SELECT
+      l.score,
+      l.team_numbers,
+      l.match_key,
+      l.event_key,
+      e.name as event_name,
+      l.alliance,
+      l.achieved_at,
+      m.video_url
+    FROM leaderboard l
+    LEFT JOIN events e ON l.event_key = e.event_key
+    LEFT JOIN matches m ON l.match_key = m.match_key
+  `
+
+  const rows = (
+    eventKey
+      ? db
+        .prepare(`${baseQuery} WHERE l.event_key = ? ORDER BY l.score DESC, l.achieved_at ASC`)
+        .all(eventKey)
+      : db.prepare(`${baseQuery} ORDER BY l.score DESC, l.achieved_at ASC`).all()
   ) as RawLeaderboardRow[]
 
   return rows.map((r) => ({
@@ -170,50 +172,69 @@ type RawTeamMatch = {
 export async function getTeamMatches(teamNumber: number) {
   await ensureDbSchema()
   const db = getDb()
-  const rows = (await db<RawTeamMatch[]>`
-    SELECT m.*, e.name as event_name,
-      'red'::text as team_alliance,
-      CASE
-        WHEN (m.actual_time IS NULL AND m.post_result_time IS NULL) OR m.red_score < 0 OR m.blue_score < 0 THEN 'unplayed'
-        WHEN m.winning_alliance = 'red' THEN 'win'
-        WHEN m.winning_alliance = '' OR m.winning_alliance IS NULL THEN 'tie'
-        ELSE 'loss'
-      END as result
-    FROM matches m
-    LEFT JOIN events e ON m.event_key = e.event_key
-    WHERE EXISTS (
-      SELECT 1
-      FROM jsonb_array_elements_text(m.red_teams::jsonb) AS team(value)
-      WHERE (team.value)::int = ${teamNumber}
-    )
-    UNION ALL
-    SELECT m.*, e.name as event_name,
-      'blue'::text as team_alliance,
-      CASE
-        WHEN (m.actual_time IS NULL AND m.post_result_time IS NULL) OR m.red_score < 0 OR m.blue_score < 0 THEN 'unplayed'
-        WHEN m.winning_alliance = 'blue' THEN 'win'
-        WHEN m.winning_alliance = '' OR m.winning_alliance IS NULL THEN 'tie'
-        ELSE 'loss'
-      END as result
-    FROM matches m
-    LEFT JOIN events e ON m.event_key = e.event_key
-    WHERE EXISTS (
-      SELECT 1
-      FROM jsonb_array_elements_text(m.blue_teams::jsonb) AS team(value)
-      WHERE (team.value)::int = ${teamNumber}
-    )
-    ORDER BY COALESCE(actual_time, post_result_time, 0) DESC
-  `) as RawTeamMatch[]
+
+  const rows = db.prepare(`
+    SELECT
+      combined.*
+    FROM (
+      SELECT
+        m.*,
+        e.name as event_name,
+        'red' as team_alliance,
+        CASE
+          WHEN (m.actual_time IS NULL AND m.post_result_time IS NULL) OR m.red_score < 0 OR m.blue_score < 0 THEN 'unplayed'
+          WHEN m.winning_alliance = 'red' THEN 'win'
+          WHEN m.winning_alliance = '' OR m.winning_alliance IS NULL THEN 'tie'
+          ELSE 'loss'
+        END as result,
+        COALESCE(m.actual_time, m.post_result_time, 0) as sort_time
+      FROM matches m
+      LEFT JOIN events e ON m.event_key = e.event_key
+      WHERE EXISTS (
+        SELECT 1
+        FROM json_each(m.red_teams) AS team
+        WHERE CAST(team.value AS INTEGER) = ?
+      )
+      UNION ALL
+      SELECT
+        m.*,
+        e.name as event_name,
+        'blue' as team_alliance,
+        CASE
+          WHEN (m.actual_time IS NULL AND m.post_result_time IS NULL) OR m.red_score < 0 OR m.blue_score < 0 THEN 'unplayed'
+          WHEN m.winning_alliance = 'blue' THEN 'win'
+          WHEN m.winning_alliance = '' OR m.winning_alliance IS NULL THEN 'tie'
+          ELSE 'loss'
+        END as result,
+        COALESCE(m.actual_time, m.post_result_time, 0) as sort_time
+      FROM matches m
+      LEFT JOIN events e ON m.event_key = e.event_key
+      WHERE EXISTS (
+        SELECT 1
+        FROM json_each(m.blue_teams) AS team
+        WHERE CAST(team.value AS INTEGER) = ?
+      )
+    ) as combined
+    ORDER BY combined.sort_time DESC
+  `).all(teamNumber, teamNumber) as RawTeamMatch[]
 
   return rows.map((r) => ({
-    ...r,
+    match_key: r.match_key,
+    event_key: r.event_key,
+    comp_level: r.comp_level,
+    match_number: r.match_number,
+    set_number: r.set_number,
     red_score: r.red_score ?? -1,
     blue_score: r.blue_score ?? -1,
-    actual_time: r.actual_time === null ? null : toNumber(r.actual_time),
-    post_result_time: r.post_result_time === null ? null : toNumber(r.post_result_time),
-    event_name: r.event_name ?? 'Unknown Event',
     red_teams: parseNumberArray(r.red_teams),
     blue_teams: parseNumberArray(r.blue_teams),
+    winning_alliance: r.winning_alliance,
+    actual_time: r.actual_time === null ? null : toNumber(r.actual_time),
+    post_result_time: r.post_result_time === null ? null : toNumber(r.post_result_time),
+    video_url: r.video_url ?? null,
+    event_name: r.event_name ?? 'Unknown Event',
+    team_alliance: r.team_alliance,
+    result: r.result,
   }))
 }
 
@@ -223,57 +244,62 @@ export async function searchTeams(query: string, limit = 20) {
   const normalized = query.trim()
   if (!normalized) return []
 
-  const countRows = (await db<{ count: string | number }[]>`
-    SELECT COUNT(*)::bigint as count FROM teams
-  `) as Array<{ count: string | number }>
-  const teamCount = toNumber(countRows[0]?.count ?? 0)
+  const teamCountRow = db.prepare('SELECT COUNT(*) as count FROM teams').get() as { count?: number }
+  const teamCount = teamCountRow?.count ?? 0
 
   if (teamCount === 0) {
-    await db`
-      INSERT INTO teams (team_number, nickname, city, state_prov, country, last_updated)
-      SELECT DISTINCT (j.value)::int, '', '', '', '', ${Date.now()}
+    db.prepare(`
+      INSERT OR IGNORE INTO teams (team_number, nickname, city, state_prov, country, last_updated)
+      SELECT DISTINCT CAST(j.value AS INTEGER), '', '', '', '', ?
       FROM (
-        SELECT red_teams::jsonb AS team_json FROM matches
+        SELECT red_teams AS team_json FROM matches
         UNION ALL
-        SELECT blue_teams::jsonb AS team_json FROM matches
-      ) m
-      CROSS JOIN LATERAL jsonb_array_elements_text(m.team_json) AS j(value)
-      ON CONFLICT (team_number) DO NOTHING
-    `
+        SELECT blue_teams AS team_json FROM matches
+      ) m,
+      json_each(m.team_json) AS j
+    `).run(Date.now())
   }
 
-  const q = `%${normalized}%`
-  return (await db`
-    SELECT team_number, COALESCE(nickname, '') as nickname, COALESCE(city, '') as city, state_prov, country
+  const safeLimit = Math.max(1, Math.min(limit, 100))
+  const numericPattern = `%${normalized}%`
+  const textPattern = `%${normalized.toLowerCase()}%`
+
+  return db.prepare(`
+    SELECT
+      team_number,
+      COALESCE(nickname, '') as nickname,
+      COALESCE(city, '') as city,
+      state_prov,
+      country
     FROM teams
-    WHERE CAST(team_number AS TEXT) ILIKE ${q}
-       OR COALESCE(nickname, '') ILIKE ${q}
-       OR COALESCE(city, '') ILIKE ${q}
+    WHERE CAST(team_number AS TEXT) LIKE ?
+       OR LOWER(COALESCE(nickname, '')) LIKE ?
+       OR LOWER(COALESCE(city, '')) LIKE ?
     ORDER BY team_number ASC
-    LIMIT ${Math.max(1, Math.min(limit, 100))}
-  `) as Array<Record<string, unknown>>
+    LIMIT ?
+  `).all(numericPattern, textPattern, textPattern, safeLimit) as Array<Record<string, unknown>>
 }
 
 export async function getAllEvents(year?: number) {
   await ensureDbSchema()
   const db = getDb()
-  return (await db`
+  return db.prepare(`
     SELECT event_key, name, short_name, city, state_prov, country, year, start_date, end_date
     FROM events
-    WHERE year = ${year ?? new Date().getFullYear()}
+    WHERE year = ?
     ORDER BY start_date ASC
-  `) as Array<Record<string, unknown>>
+  `).all(year ?? new Date().getFullYear()) as Array<Record<string, unknown>>
 }
 
 export async function getTeam(teamNumber: number) {
   await ensureDbSchema()
   const db = getDb()
-  const rows = (await db`
+  const row = db.prepare(`
     SELECT *
     FROM teams
-    WHERE team_number = ${teamNumber}
+    WHERE team_number = ?
     LIMIT 1
-  `) as Array<Record<string, unknown>>
-  return rows[0] ?? null
-}
+  `).get(teamNumber) as Record<string, unknown> | undefined
 
+  return row ?? null
+}
