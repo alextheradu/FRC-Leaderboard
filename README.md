@@ -9,7 +9,7 @@ Interactive FRC match score leaderboard powered by The Blue Alliance API.
    - `TBA_API_KEY`
    - `SQLITE_DB_PATH` (optional, defaults to `./data/leaderboard.db`)
 3. `npx tsx scripts/initial-sync.ts` — seeds local SQLite with events/matches
-4. `npm run dev` — open http://localhost:3000
+4. `npm run dev` — open http://localhost:2026
 
 ## Features
 
@@ -25,7 +25,7 @@ Interactive FRC match score leaderboard powered by The Blue Alliance API.
 ## Manual Sync
 
 ```
-curl -X POST http://localhost:3000/api/sync
+curl -X POST http://localhost:2026/api/sync
 ```
 
 ## Stack

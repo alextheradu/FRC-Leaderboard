@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --port 2026",
     "build": "next build",
-    "start": "next start",
+    "start": "next start --port 2026",
     "lint": "eslint",
     "sync": "tsx scripts/initial-sync.ts"
   },
