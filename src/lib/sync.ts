@@ -12,6 +12,7 @@ export interface LeaderboardEntry {
   event_key: string
   alliance: 'red' | 'blue'
   score: number
+  foul_points: number
   team_numbers: number[]
   achieved_at: number
 }
@@ -51,6 +52,7 @@ interface LeaderboardRow {
   event_key: string
   alliance: 'red' | 'blue'
   score: number
+  foul_points: number
   team_numbers: string
   achieved_at: number
 }
@@ -187,6 +189,7 @@ function upsertLeaderboard(rows: LeaderboardRow[]): void {
       event_key,
       alliance,
       score,
+      foul_points,
       team_numbers,
       achieved_at
     ) VALUES (
@@ -194,6 +197,7 @@ function upsertLeaderboard(rows: LeaderboardRow[]): void {
       @event_key,
       @alliance,
       @score,
+      @foul_points,
       @team_numbers,
       @achieved_at
     )
@@ -201,6 +205,7 @@ function upsertLeaderboard(rows: LeaderboardRow[]): void {
       event_key = excluded.event_key,
       alliance = excluded.alliance,
       score = excluded.score,
+      foul_points = excluded.foul_points,
       team_numbers = excluded.team_numbers,
       achieved_at = excluded.achieved_at
   `)
@@ -282,12 +287,14 @@ export function computeLeaderboardEntries(matches: TBAMatch[]): LeaderboardEntry
     const time = match.post_result_time ?? match.actual_time ?? 0
     const winner: 'red' | 'blue' = red.score >= blue.score ? 'red' : 'blue'
     const winnerAlliance = winner === 'red' ? red : blue
+    const foulPoints = match.score_breakdown?.[winner]?.foulPoints ?? 0
 
     entries.push({
       match_key: match.key,
       event_key: match.event_key,
       alliance: winner,
       score: winnerAlliance.score,
+      foul_points: foulPoints,
       team_numbers: winnerAlliance.team_keys.map(parseTeamNumber),
       achieved_at: time,
     })

@@ -1,12 +1,13 @@
 import { useQuery } from '@tanstack/react-query'
 
-export function useLeaderboard(eventKey?: string, limit = 100, offset = 0) {
+export function useLeaderboard(eventKey?: string, limit = 100, offset = 0, includePenalties = true) {
     return useQuery({
-        queryKey: ['leaderboard', eventKey ?? 'global', limit, offset],
+        queryKey: ['leaderboard', eventKey ?? 'global', limit, offset, includePenalties],
         queryFn: async () => {
             const params = new URLSearchParams({
                 limit: String(limit),
                 offset: String(offset),
+                includePenalties: String(includePenalties),
             })
             const url = eventKey
                 ? `/api/events/${eventKey}/leaderboard?${params.toString()}`

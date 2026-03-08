@@ -14,7 +14,8 @@ export async function GET(
     }
 
     const eventKey = req.nextUrl.searchParams.get('eventKey') ?? undefined
-    const placement = await getTeamPlacement(parsedTeam, eventKey)
+    const includePenalties = req.nextUrl.searchParams.get('includePenalties') !== 'false'
+    const placement = await getTeamPlacement(parsedTeam, eventKey, includePenalties)
     if (!placement) {
         return NextResponse.json({ error: 'Team not found in leaderboard' }, { status: 404 })
     }

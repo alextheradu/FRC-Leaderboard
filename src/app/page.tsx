@@ -24,8 +24,9 @@ export default function HomePage() {
   const [showFavorites, setShowFavorites] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)
   const [offset, setOffset] = useState(0)
+  const [includePenalties, setIncludePenalties] = useState(false)
 
-  const { data: leaderboardData, isLoading } = useLeaderboard(selectedEvent, PAGE_SIZE, offset)
+  const { data: leaderboardData, isLoading } = useLeaderboard(selectedEvent, PAGE_SIZE, offset, includePenalties)
   const { favorites } = useFavorites()
   const typedRows = (leaderboardData?.rows ?? []) as LeaderboardRow[]
   const totalPlaces = (leaderboardData?.total ?? 0) as number
@@ -41,8 +42,10 @@ export default function HomePage() {
     setSelectedTeam(teamNumber)
     setShowFavorites(false)
     try {
-      const query = selectedEvent ? `?eventKey=${encodeURIComponent(selectedEvent)}` : ''
-      const res = await fetch(`/api/teams/${teamNumber}/placement${query}`)
+      const params = new URLSearchParams()
+      if (selectedEvent) params.set('eventKey', selectedEvent)
+      params.set('includePenalties', String(includePenalties))
+      const res = await fetch(`/api/teams/${teamNumber}/placement?${params.toString()}`)
       if (!res.ok) return
       const data = await res.json() as { rank: number }
       const targetOffset = Math.floor((Math.max(data.rank, 1) - 1) / PAGE_SIZE) * PAGE_SIZE
@@ -77,7 +80,7 @@ export default function HomePage() {
         isSyncing={isSyncing}
       />
 
-      <main className="max-w-6xl mx-auto px-4 py-5">
+      <main className="max-w-7xl mx-auto px-4 py-5">
         {/* Controls */}
         <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
           <div className="flex items-center gap-3 flex-wrap">
@@ -85,6 +88,16 @@ export default function HomePage() {
               {showFavorites ? 'Favorites' : selectedEvent ? 'Event Leaderboard' : 'Global Leaderboard'}
             </h1>
             <EventFilter selectedEvent={selectedEvent} onSelect={setSelectedEvent} />
+            <label className="flex items-center gap-1.5 cursor-pointer select-none text-xs" style={{ color: 'var(--text-secondary)' }}>
+              <input
+                type="checkbox"
+                checked={includePenalties}
+                onChange={e => setIncludePenalties(e.target.checked)}
+                className="rounded"
+                style={{ accentColor: 'var(--first-blue)', width: '14px', height: '14px' }}
+              />
+              Include penalties
+            </label>
           </div>
           <div className="flex items-center gap-2 text-xs flex-wrap justify-end" style={{ color: 'var(--text-muted)' }}>
             {isLoading && <RefreshCw size={12} className="animate-spin" />}

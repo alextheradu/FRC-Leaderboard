@@ -3,6 +3,7 @@ import { ensureDbSchema, getDb } from './db'
 export interface LeaderboardRow {
   rank: number
   score: number
+  foul_points: number
   team_numbers: number[]
   match_key: string
   event_key: string
@@ -43,6 +44,7 @@ function parseNumberArray(value: unknown): number[] {
 
 type RawLeaderboardRow = {
   score: number | string
+  foul_points: number | string
   team_numbers: unknown
   match_key: string
   event_key: string
@@ -52,13 +54,16 @@ type RawLeaderboardRow = {
   video_url: string | null
 }
 
-async function fetchLeaderboardRows(eventKey?: string): Promise<LeaderboardRow[]> {
+async function fetchLeaderboardRows(eventKey?: string, includePenalties = true): Promise<LeaderboardRow[]> {
   await ensureDbSchema()
   const db = getDb()
+
+  const scoreExpr = includePenalties ? 'l.score' : '(l.score - l.foul_points)'
 
   const baseQuery = `
     SELECT
       l.score,
+      l.foul_points,
       l.team_numbers,
       l.match_key,
       l.event_key,
@@ -74,22 +79,27 @@ async function fetchLeaderboardRows(eventKey?: string): Promise<LeaderboardRow[]
   const rows = (
     eventKey
       ? db
-        .prepare(`${baseQuery} WHERE l.event_key = ? ORDER BY l.score DESC, l.achieved_at ASC`)
+        .prepare(`${baseQuery} WHERE l.event_key = ? ORDER BY ${scoreExpr} DESC, l.achieved_at ASC`)
         .all(eventKey)
-      : db.prepare(`${baseQuery} ORDER BY l.score DESC, l.achieved_at ASC`).all()
+      : db.prepare(`${baseQuery} ORDER BY ${scoreExpr} DESC, l.achieved_at ASC`).all()
   ) as RawLeaderboardRow[]
 
-  return rows.map((r) => ({
-    rank: 0,
-    score: toNumber(r.score),
-    team_numbers: parseNumberArray(r.team_numbers),
-    match_key: r.match_key,
-    event_key: r.event_key,
-    event_name: r.event_name ?? 'Unknown Event',
-    alliance: r.alliance,
-    achieved_at: toNumber(r.achieved_at),
-    video_url: r.video_url ?? null,
-  }))
+  return rows.map((r) => {
+    const rawScore = toNumber(r.score)
+    const foulPts = toNumber(r.foul_points)
+    return {
+      rank: 0,
+      score: includePenalties ? rawScore : rawScore - foulPts,
+      foul_points: foulPts,
+      team_numbers: parseNumberArray(r.team_numbers),
+      match_key: r.match_key,
+      event_key: r.event_key,
+      event_name: r.event_name ?? 'Unknown Event',
+      alliance: r.alliance,
+      achieved_at: toNumber(r.achieved_at),
+      video_url: r.video_url ?? null,
+    }
+  })
 }
 
 function dedupeLeaderboardRows(rows: LeaderboardRow[]): LeaderboardRow[] {
@@ -107,11 +117,12 @@ function dedupeLeaderboardRows(rows: LeaderboardRow[]): LeaderboardRow[] {
 async function getLeaderboardPage(
   eventKey: string | undefined,
   limit: number,
-  offset: number
+  offset: number,
+  includePenalties = true
 ): Promise<LeaderboardPage> {
   const safeLimit = Math.max(1, Math.min(limit, 500))
   const safeOffset = Math.max(0, offset)
-  const rows = dedupeLeaderboardRows(await fetchLeaderboardRows(eventKey))
+  const rows = dedupeLeaderboardRows(await fetchLeaderboardRows(eventKey, includePenalties))
   return {
     rows: rows.slice(safeOffset, safeOffset + safeLimit),
     total: rows.length,
@@ -120,16 +131,17 @@ async function getLeaderboardPage(
   }
 }
 
-export async function getGlobalLeaderboardPage(limit = 100, offset = 0): Promise<LeaderboardPage> {
-  return getLeaderboardPage(undefined, limit, offset)
+export async function getGlobalLeaderboardPage(limit = 100, offset = 0, includePenalties = true): Promise<LeaderboardPage> {
+  return getLeaderboardPage(undefined, limit, offset, includePenalties)
 }
 
 export async function getEventLeaderboardPage(
   eventKey: string,
   limit = 100,
-  offset = 0
+  offset = 0,
+  includePenalties = true
 ): Promise<LeaderboardPage> {
-  return getLeaderboardPage(eventKey, limit, offset)
+  return getLeaderboardPage(eventKey, limit, offset, includePenalties)
 }
 
 export async function getGlobalLeaderboard(limit = 100): Promise<LeaderboardRow[]> {
@@ -140,8 +152,8 @@ export async function getEventLeaderboard(eventKey: string, limit = 100): Promis
   return (await getEventLeaderboardPage(eventKey, limit, 0)).rows
 }
 
-export async function getTeamPlacement(teamNumber: number, eventKey?: string) {
-  const rows = dedupeLeaderboardRows(await fetchLeaderboardRows(eventKey))
+export async function getTeamPlacement(teamNumber: number, eventKey?: string, includePenalties = true) {
+  const rows = dedupeLeaderboardRows(await fetchLeaderboardRows(eventKey, includePenalties))
   const teamRow = rows.find((row) => row.team_numbers.includes(teamNumber))
   if (!teamRow) return null
   return {

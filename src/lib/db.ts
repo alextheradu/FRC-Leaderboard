@@ -40,6 +40,13 @@ export async function ensureDbSchema(): Promise<void> {
     const db = getDb()
     const schema = fs.readFileSync(path.join(process.cwd(), 'src', 'lib', 'schema.sql'), 'utf-8')
     db.exec(schema)
+
+    // Migration: add foul_points column if it doesn't exist (existing databases)
+    try {
+      db.exec('ALTER TABLE leaderboard ADD COLUMN foul_points INTEGER NOT NULL DEFAULT 0')
+    } catch {
+      // Column already exists — ignore
+    }
   })()
 
   await _schemaPromise

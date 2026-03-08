@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS leaderboard (
   event_key TEXT NOT NULL,
   alliance TEXT NOT NULL,
   score INTEGER NOT NULL,
+  foul_points INTEGER NOT NULL DEFAULT 0,
   team_numbers TEXT NOT NULL,
   achieved_at INTEGER NOT NULL,
   FOREIGN KEY (match_key) REFERENCES matches(match_key) ON DELETE CASCADE

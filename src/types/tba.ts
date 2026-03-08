@@ -36,6 +36,10 @@ export interface TBAMatch {
         red: TBAMatchAlliance
         blue: TBAMatchAlliance
     }
+    score_breakdown?: {
+        red?: { foulPoints?: number }
+        blue?: { foulPoints?: number }
+    } | null
     winning_alliance: 'red' | 'blue' | ''
     actual_time: number | null
     post_result_time: number | null

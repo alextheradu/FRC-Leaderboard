@@ -13,7 +13,7 @@ interface Props {
 export function Header({ onTeamSelect, onShowFavorites, showingFavorites, onSync, isSyncing }: Props) {
     return (
         <header className="sticky top-0 z-40 bg-white border-b" style={{ borderColor: 'var(--border)' }}>
-            <div className="max-w-6xl mx-auto px-4 h-12 flex items-center gap-4">
+            <div className="max-w-7xl mx-auto px-4 h-14 flex items-center gap-4">
                 <span className="font-bold text-sm tracking-wide shrink-0" style={{ fontFamily: "'Barlow Condensed', sans-serif" }}>
                     <span style={{ color: 'var(--first-blue)' }}>FRC</span>
                     <span className="mx-0.5" style={{ color: 'var(--text-muted)' }}>/</span>
