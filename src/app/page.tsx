@@ -137,6 +137,7 @@ export default function HomePage() {
             rows={displayRows}
             highlightTeams={selectedTeam ? [selectedTeam] : favorites}
             onTeamClick={setSelectedTeam}
+            isLoading={isLoading}
           />
         </div>
 
