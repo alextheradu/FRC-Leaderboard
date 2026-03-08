@@ -471,3 +471,115 @@ export async function syncTeams(teamNumbers: number[]): Promise<void> {
     upsertTeamDetails(details)
   }
 }
+
+/**
+ * Incremental sync: only re-fetches matches for events that are currently
+ * active (today falls within start_date – end_date +1 day window).
+ * The TBA client uses ETags, so requests for unchanged data return 304 and
+ * are skipped with zero bandwidth. New or updated matches are upserted.
+ */
+export async function incrementalSync(
+  year: number = new Date().getFullYear(),
+  logger: SyncLogger = noopLogger
+): Promise<void> {
+  await ensureDbSchema()
+  const db = getDb()
+  const tba = getTBAClient()
+
+  // Determine today's date string in YYYY-MM-DD (local time)
+  const now = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+
+  // Look up events in the DB whose window covers today (±1 day buffer)
+  const activeEvents = db.prepare(`
+    SELECT event_key, name
+    FROM events
+    WHERE year = ?
+      AND start_date <= date(?, '+1 day')
+      AND end_date   >= date(?, '-1 day')
+    ORDER BY start_date ASC
+  `).all(year, todayStr, todayStr) as Array<{ event_key: string; name: string }>
+
+  if (!activeEvents.length) {
+    logger.log('[incremental] No active events found for today.')
+    return
+  }
+
+  logger.log(`[incremental] Syncing ${activeEvents.length} active event(s): ${activeEvents.map(e => e.event_key).join(', ')}`)
+
+  const logInsert = db.prepare(`
+    INSERT INTO sync_log (started_at, status) VALUES (?, 'running')
+  `).run(Date.now())
+  const logId = Number(logInsert.lastInsertRowid)
+
+  let matchesSynced = 0
+
+  try {
+    const BATCH = 5
+    for (let i = 0; i < activeEvents.length; i += BATCH) {
+      const batch = activeEvents.slice(i, i + BATCH)
+      logger.progress(i, activeEvents.length, `Fetching: ${batch.map(e => e.event_key).join(', ')}`)
+
+      const results = await Promise.all(
+        batch.map(e => tba.get<TBAMatch[]>(`/event/${e.event_key}/matches`))
+      )
+
+      const matchRows: MatchRow[] = []
+      const leaderboardRows: LeaderboardRow[] = []
+      const teamSet = new Set<number>()
+
+      for (const matches of results) {
+        if (!matches) continue // 304 Not Modified — nothing changed, skip
+
+        for (const m of matches) {
+          const redTeams = m.alliances.red.team_keys.map(parseTeamNumber)
+          const blueTeams = m.alliances.blue.team_keys.map(parseTeamNumber)
+          const youtubeKey = m.videos?.find(v => v.type === 'youtube')?.key
+
+          matchRows.push({
+            match_key: m.key,
+            event_key: m.event_key,
+            comp_level: m.comp_level,
+            match_number: m.match_number,
+            set_number: m.set_number,
+            red_score: m.alliances.red.score,
+            blue_score: m.alliances.blue.score,
+            red_teams: JSON.stringify(redTeams),
+            blue_teams: JSON.stringify(blueTeams),
+            winning_alliance: m.winning_alliance || null,
+            actual_time: m.actual_time,
+            post_result_time: m.post_result_time,
+            video_url: youtubeKey ? `https://www.youtube.com/watch?v=${youtubeKey}` : null,
+          })
+
+          for (const team of redTeams) teamSet.add(team)
+          for (const team of blueTeams) teamSet.add(team)
+          matchesSynced++
+        }
+
+        for (const entry of computeLeaderboardEntries(matches)) {
+          leaderboardRows.push({ ...entry, team_numbers: JSON.stringify(entry.team_numbers) })
+        }
+      }
+
+      upsertMatches(matchRows)
+      upsertLeaderboard(leaderboardRows)
+      upsertTeamStubs(Array.from(teamSet).map(team => ({ team_number: team, last_updated: Date.now() })))
+    }
+
+    logger.log(`[incremental] Done — ${matchesSynced} matches processed across ${activeEvents.length} events`)
+    db.prepare(`
+      UPDATE sync_log
+      SET finished_at = ?, events_synced = ?, matches_synced = ?, status = 'success'
+      WHERE id = ?
+    `).run(Date.now(), activeEvents.length, matchesSynced, logId)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    db.prepare(`
+      UPDATE sync_log SET finished_at = ?, status = 'error', error_message = ? WHERE id = ?
+    `).run(Date.now(), message, logId)
+    throw err
+  }
+}
+
