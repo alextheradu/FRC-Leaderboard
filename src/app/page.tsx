@@ -65,6 +65,10 @@ export default function HomePage() {
     setOffset(0)
   }, [selectedEvent])
 
+  useEffect(() => {
+    setOffset(0)
+  }, [includePenalties])
+
   const displayStart = typedRows.length ? offset + 1 : 0
   const displayEnd = offset + typedRows.length
   const canGoUp = offset > 0
